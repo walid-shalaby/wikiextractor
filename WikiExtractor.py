@@ -84,6 +84,9 @@ keepSections = False
 #
 acceptedNamespaces = set(['w'])
 
+# Output XML header for each doc
+outputHeader = True
+
 ##
 # Drop these elements from article text
 #
@@ -98,7 +101,7 @@ discardElements = set([
 #=========================================================================
 #
 # MediaWiki Markup Grammar
- 
+
 # Template = "{{" [ "msg:" | "msgnw:" ] PageName { "|" [ ParameterName "=" AnyText | AnyText ] } "}}" ;
 # Extension = "<" ? extension ? ">" AnyText "</" ? extension ? ">" ;
 # NoWiki = "<nowiki />" | "<nowiki>" ( InlineText | BlockText ) "</nowiki>" ;
@@ -107,7 +110,7 @@ discardElements = set([
 #
 # ParameterName = ? uppercase, lowercase, numbers, no spaces, some special chars ? ;
 #
-#=========================================================================== 
+#===========================================================================
 
 # Program version
 version = '2.5'
@@ -116,17 +119,26 @@ version = '2.5'
 
 def WikiDocument(out, id, title, text):
     url = get_url(id, prefix)
-    header = '<doc id="%s" url="%s" title="%s">\n' % (id, url, title)
-    # Separate header from text with a newline.
-    header += title + '\n'
-    header = header.encode('utf-8')
     text = clean(text)
-    footer = "\n</doc>"
-    out.reserve(len(header) + len(text) + len(footer))
-    print >> out, header
+
+    if outputHeader:
+        header = '<doc id="%s" url="%s" title="%s">\n' % (id, url, title)
+    # Separate header from text with a newline.
+        header += title + '\n'
+        header = header.encode('utf-8')
+        footer = "\n</doc>"
+        if out != sys.stdout:
+            out.reserve(len(header) + len(text) + len(footer))
+        print >> out, header
+    else:
+        if out != sys.stdout:
+            out.reserve(len(text))
+
     for line in compact(text):
         print >> out, line.encode('utf-8')
-    print >> out, footer
+
+    if outputHeader:
+        print >> out, footer
 
 def get_url(id, prefix):
     return "%s?curid=%s" % (prefix, id)
@@ -616,12 +628,12 @@ def show_usage(script_name):
 minFileSize = 200 * 1024
 
 def main():
-    global keepLinks, keepSections, prefix, acceptedNamespaces
+    global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
     script_name = os.path.basename(sys.argv[0])
 
     try:
-        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'output=', 'version']
-        opts, args = getopt.gnu_getopt(sys.argv[1:], 'cb:hln:o:B:sv', long_opts)
+        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'output=', 'version', 'ignore=', 'text']
+        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:o:B:sv', long_opts)
     except getopt.GetoptError:
         show_usage(script_name)
         sys.exit(1)
@@ -634,6 +646,10 @@ def main():
         if opt in ('-h', '--help'):
             show_help()
             sys.exit()
+        elif opt in ('-i', '--ignore'):
+            ignoreTag(arg)
+        elif opt in ('-t', '--text'):
+            outputHeader = False
         elif opt in ('-c', '--compress'):
             compress = True
         elif opt in ('-l', '--links'):
@@ -667,17 +683,24 @@ def main():
         show_usage(script_name)
         sys.exit(4)
 
-    if not os.path.isdir(output_dir):
-        try:
-            os.makedirs(output_dir)
-        except:
-            print >> sys.stderr, 'Could not create: ', output_dir
-            return
+    if output_dir!="-":
+        if not os.path.isdir(output_dir):
+            try:
+                os.makedirs(output_dir)
+            except:
+                print >> sys.stderr, 'Could not create: ', output_dir
+                return
+
+        output_splitter = OutputSplitter(compress, file_size, output_dir)
+    else:
+        output_splitter = sys.stdout
+        if compress:
+            raise Exception('Incompatible options, you cannot compress stdout, use a pipe instead')
 
     if not keepLinks:
         ignoreTag('a')
 
-    output_splitter = OutputSplitter(compress, file_size, output_dir)
+
     process_data(sys.stdin, output_splitter)
     output_splitter.close()
 
