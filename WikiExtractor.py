@@ -55,6 +55,7 @@ Options:
 """
 
 import sys
+import time
 import gc
 import getopt
 import urllib
@@ -568,6 +569,8 @@ tagRE = re.compile(r'(.*?)<(/?\w+)[^>]*>(?:([^<]*)(<.*?>)?)?')
 def process_data(input, output):
     global prefix
 
+    docs = 0
+    start = time.time()
     page = []
     id = None
     inText = False
@@ -607,6 +610,9 @@ def process_data(input, output):
                 print id, title.encode('utf-8')
                 sys.stdout.flush()
                 WikiDocument(output, id, title, ''.join(page))
+                docs+=1
+                if not (docs%100000):
+                    sys.stderr.write('%d docs in %.2fs, %.2f docs/second\n'%(docs, time.time()-start,docs/(time.time()-start)))
             id = None
             page = []
         elif tag == 'base':
