@@ -141,6 +141,34 @@ def WikiDocument(out, id, title, text):
     if outputHeader:
         print >> out, footer
 
+def WikiDocumentTrec(out, id, title, text):
+    url = get_url(id, prefix)
+    text = clean(text)
+    compacted_text = compact(text)
+
+    # calculate text length    
+    length = 0
+    for line in compacted_text:
+        length += len(line)+len(os.linesep)
+        
+    if outputHeader:
+        header = '<doc>\n<title>%s</title>\n<docno>%s</docno>\n<url>%s</url>\n<length>%d</length>\n<text>' % (title, id, url,length)
+    # Separate header from text with a newline.
+        header = header.encode('utf-8')
+        footer = "</text>\n</doc>"
+        if out != sys.stdout:
+            out.reserve(len(header) + len(text) + len(footer))
+        print >> out, header
+    else:
+        if out != sys.stdout:
+            out.reserve(len(text))
+
+    for line in compacted_text:
+        print >> out, line.encode('utf-8')
+
+    if outputHeader:
+        print >> out, footer
+        
 def get_url(id, prefix):
     return "%s?curid=%s" % (prefix, id)
 
@@ -609,7 +637,7 @@ def process_data(input, output):
                     not redirect:
                 print id, title.encode('utf-8')
                 sys.stdout.flush()
-                WikiDocument(output, id, title, ''.join(page))
+                WikiDocumentTrec(output, id, title, ''.join(page))
                 docs+=1
                 if not (docs%100000):
                     sys.stderr.write('%d docs in %.2fs, %.2f docs/second\n'%(docs, time.time()-start,docs/(time.time()-start)))
