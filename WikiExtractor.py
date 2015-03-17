@@ -12,6 +12,7 @@
 #	Humberto Pereira (begini@gmail.com)
 #	Siegfried-A. Gevatter (siegfried@gevatter.com)
 #	Pedro Assis (pedroh2306@gmail.com)
+#	Walid Shalaby (w.fouad.cs@gmail.com)
 #
 # =============================================================================
 #  Copyright (c) 2009. Giuseppe Attardi (attardi@di.unipi.it).
@@ -35,9 +36,15 @@
 Extracts and cleans text from Wikipedia database dump and stores output in a
 number of files of similar size in a given directory.
 Each file contains several documents in Tanl document format:
-	<doc id="" url="" title="">
-        ...
-        </doc>
+    <doc>
+        <title>..</title>
+        <docno>..</docno>
+        <url>..</url>
+        <length>..</length>
+        <text>
+        ....
+        </text
+ 	</doc>
 
 Usage:
   WikiExtractor.py [options]
@@ -51,6 +58,12 @@ Options:
   -o, --output= dir     : place output files in specified directory (default
                           current)
   -s, --sections	: preserve sections
+  -a, --anchors	: write anchors for same article in specified file
+                  e.g., [[Jaguar|Big Cat]] indicate that article with title 
+                  "Jaguar" is also referred to as "Big Cat". 
+                  The file will will have below format
+                  anchor_text|target_title
+                  
   -h, --help            : display this help and exit
 """
 
@@ -73,6 +86,13 @@ prefix = None
 # Whether to preseve links in output
 #
 keepLinks = False
+
+##
+# Whether to flush anchors in output
+#
+keepAnchors = False
+anchors_file = None
+anchors_dic = {}
 
 ##
 # Whether to transform sections into HTML
@@ -142,6 +162,7 @@ def WikiDocument(out, id, title, text):
         print >> out, footer
 
 def WikiDocumentTrec(out, id, title, text):
+    global anchors_file, anchors_dic
     url = get_url(id, prefix)
     text = clean(text)
     compacted_text = compact(text)
@@ -168,7 +189,7 @@ def WikiDocumentTrec(out, id, title, text):
 
     if outputHeader:
         print >> out, footer
-        
+    
 def get_url(id, prefix):
     return "%s?curid=%s" % (prefix, id)
 
@@ -378,7 +399,7 @@ parametrizedLink = re.compile(r'\[\[.*?\]\]')
 
 # Function applied to wikiLinks
 def make_anchor_tag(match):
-    global keepLinks
+    global keepLinks, anchors_dic, keepAnchors
     link = match.group(1)
     colon = link.find(':')
     if colon > 0 and link[:colon] not in acceptedNamespaces:
@@ -387,6 +408,12 @@ def make_anchor_tag(match):
     anchor = match.group(2)
     if not anchor:
         anchor = link
+    elif anchor!=link and keepAnchors: 
+        # add anchor to the anchors dictionary if not there
+        if anchors_dic.has_key(link):
+            anchors_dic[link].add(anchor)            
+        else:
+            anchors_dic[link] = set([anchor])
     anchor += trail
     if keepLinks:
         return '<a href="%s">%s</a>' % (link, anchor)
@@ -663,11 +690,12 @@ minFileSize = 200 * 1024
 
 def main():
     global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
+    global keepAnchors, anchors_file
     script_name = os.path.basename(sys.argv[0])
 
     try:
-        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'output=', 'version', 'ignore=', 'text']
-        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:o:B:sv', long_opts)
+        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'anchors=', 'output=', 'version', 'ignore=', 'text']
+        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:a:o:B:sv', long_opts)
     except getopt.GetoptError:
         show_usage(script_name)
         sys.exit(1)
@@ -675,6 +703,7 @@ def main():
     compress = False
     file_size = 500 * 1024
     output_dir = '.'
+    anchors_path = ''
 
     for opt, arg in opts:
         if opt in ('-h', '--help'):
@@ -709,6 +738,9 @@ def main():
                 acceptedNamespaces = set(arg.split(','))
         elif opt in ('-o', '--output'):
                 output_dir = arg
+        elif opt in ('-a', '--anchors'):
+                anchors_path = arg
+                keepAnchors = True
         elif opt in ('-v', '--version'):
                 print 'WikiExtractor.py version:', version
                 sys.exit(0)
@@ -731,6 +763,13 @@ def main():
         if compress:
             raise Exception('Incompatible options, you cannot compress stdout, use a pipe instead')
 
+    if keepAnchors:
+        try:
+            anchors_file = open(anchors_path,'w')            
+        except:
+            print >> sys.stderr, 'Could not create: ', anchors_path
+            return
+        
     if not keepLinks:
         ignoreTag('a')
 
@@ -738,5 +777,12 @@ def main():
     process_data(sys.stdin, output_splitter)
     output_splitter.close()
 
+    # write anchors
+    if keepAnchors:
+        for link in anchors_dic.keys():
+            for anchor in anchors_dic[link]:
+                anchors_file.write(link.encode('utf-8')+'|'+anchor.encode('utf-8')+os.linesep)
+        anchors_file.close
+        
 if __name__ == '__main__':
     main()
