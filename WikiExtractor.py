@@ -57,13 +57,14 @@ Options:
   -n NS, --ns NS        : accepted namespaces (separated by commas)
   -o, --output= dir     : place output files in specified directory (default
                           current)
-  -s, --sections	: preserve sections
-  -a, --anchors	: write anchors for same article in specified file
-                  e.g., [[Jaguar|Big Cat]] indicate that article with title 
-                  "Jaguar" is also referred to as "Big Cat". 
-                  The file will will have below format
-                  anchor_text|target_title
-                  
+  -s, --sections	       : preserve sections
+  -a, --anchors	       : write anchors for same article in specified file
+                          e.g., [[Jaguar|Big Cat]] indicate that article with 
+                          title "Jaguar" is also referred to as "Big Cat". 
+                          The file will will have lines in below format
+                          anchor_text|target_title
+  -e, --seealso	       : keep see also titles (usually they represent 
+                          semantically related topics)
   -h, --help            : display this help and exit
 """
 
@@ -98,6 +99,11 @@ anchors_dic = {}
 # Whether to transform sections into HTML
 #
 keepSections = False
+
+##
+# Whether to keep See also section
+#
+keepSeeAlso = False
 
 ##
 # Recognize only these namespaces
@@ -173,7 +179,8 @@ def WikiDocumentTrec(out, id, title, text):
         length += len(line)+len(os.linesep)
         
     if outputHeader:
-        header = '<doc>\n<title>%s</title>\n<docno>%s</docno>\n<url>%s</url>\n<length>%d</length>\n<text>' % (title, id, url,length)
+        header = ("<doc>\n<title>%s</title>\n<docno>%s</docno>\n"
+                  "<url>%s</url>\n<length>%d</length>\n<text>") % (title, id, url,length)
     # Separate header from text with a newline.
         header = header.encode('utf-8')
         footer = "</text>\n</doc>"
@@ -510,11 +517,13 @@ section = re.compile(r'(==+)\s*(.*?)\s*\1')
 
 def compact(text):
     """Deal with headers, lists, empty sections, residuals of tables"""
+    global keepSeeAlso
     page = []                   # list of paragraph
     headers = {}                # Headers for unfilled sections
     emptySection = False        # empty sections are discarded
     inList = False              # whether opened <UL>
-
+    seeAlsoSection = False
+    
     for line in text.split('\n'):
 
         if not line:
@@ -523,6 +532,11 @@ def compact(text):
         m = section.match(line)
         if m:
             title = m.group(2)
+            if keepSeeAlso:
+                if title.lower()=='see also': # this is See also section
+                    seeAlsoSection = True
+                else:
+                    seeAlsoSection = False
             lev = len(m.group(1))
             if keepSections:
                 page.append("<h%d>%s</h%d>" % (lev, title, lev))
@@ -533,7 +547,7 @@ def compact(text):
             for i in headers.keys():
                 if i > lev:
                     del headers[i]
-            emptySection = True
+            emptySection = True            
             continue
         # Handle page title
         if line.startswith('++'):
@@ -544,6 +558,9 @@ def compact(text):
                 page.append(title)
         # handle lists
         elif line[0] in '*#:;':
+            if keepSeeAlso and seeAlsoSection:
+                # TODO: line[1:].encode('utf-8')
+                page.append("<seealso>%s</seealso>" % line[1:].lstrip())
             if keepSections:
                 page.append("<li>%s</li>" % line[1:])
             else:
@@ -690,12 +707,12 @@ minFileSize = 200 * 1024
 
 def main():
     global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
-    global keepAnchors, anchors_file
+    global keepAnchors, anchors_file, keepSeeAlso
     script_name = os.path.basename(sys.argv[0])
 
     try:
-        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'anchors=', 'output=', 'version', 'ignore=', 'text']
-        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:a:o:B:sv', long_opts)
+        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'seealso', 'anchors=', 'output=', 'version', 'ignore=', 'text']
+        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:ea:o:B:sv', long_opts)
     except getopt.GetoptError:
         show_usage(script_name)
         sys.exit(1)
@@ -741,6 +758,8 @@ def main():
         elif opt in ('-a', '--anchors'):
                 anchors_path = arg
                 keepAnchors = True
+        elif opt in ('-e', '--seealso'):
+                keepSeeAlso = True
         elif opt in ('-v', '--version'):
                 print 'WikiExtractor.py version:', version
                 sys.exit(0)
