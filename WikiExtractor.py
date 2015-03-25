@@ -65,8 +65,8 @@ Options:
                           anchor_text|target_title
   -e, --seealso	       : keep see also titles (usually they represent 
                           semantically related topics)
-  -p, --xmlnsp	       : convert namespace lines into xml format 
-                          e.g., Category:companies --> 
+  -p, --category	       : keep category information
+                          e.g., [Category:companies] --> 
                           <Category>companies</Cateogory>
   -h, --help            : display this help and exit
 """
@@ -111,7 +111,7 @@ keepSeeAlso = False
 ##
 # Whether to convert namespaces into xml
 #
-xmlNSP = False
+keepCategoryInfo = False
 
 ##
 # Recognize only these namespaces
@@ -410,11 +410,20 @@ def dropSpans(matches, text):
 #
 wikiLink = re.compile(r'\[\[([^[]*?)(?:\|([^[]*?))?\]\](\w*)')
 
+categoryLink = re.compile(r'\[\[(Category:[^\|\]]*)(\|?.*)\]\]')
+
 parametrizedLink = re.compile(r'\[\[.*?\]\]')
+
+# Function applied to category links
+def make_category_tag(match):
+
+    link = match.group(1)
+    colon = link.find(':')
+    return '<%s>%s</%s>' % (link[:colon],link[colon+1:],link[:colon])
 
 # Function applied to wikiLinks
 def make_anchor_tag(match):
-    global keepLinks, anchors_dic, keepAnchors, xmlNSP
+    global keepLinks, anchors_dic, keepAnchors, keepCategoryInfo
     link = match.group(1)
     colon = link.find(':')
     if colon > 0 and link[:colon] not in acceptedNamespaces:
@@ -432,8 +441,6 @@ def make_anchor_tag(match):
     anchor += trail
     if keepLinks:
         return '<a href="%s">%s</a>' % (link, anchor)
-    elif xmlNSP==True and colon > 0 and link[:colon] in acceptedNamespaces:
-        return '<%s>%s</%s>' % (link[:colon],link[colon+1:],link[:colon])
     else:
         return anchor
 
@@ -442,11 +449,17 @@ def clean(text):
     # FIXME: templates should be expanded
     # Drop transclusions (template, parser functions)
     # See: http://www.mediawiki.org/wiki/Help:Templates
+
+    global keepCategoryInfo
+    
     text = dropNested(text, r'{{', r'}}')
 
     # Drop tables
     text = dropNested(text, r'{\|', r'\|}')
 
+    if keepCategoryInfo==True:
+        text = categoryLink.sub(make_category_tag, text)
+        
     # Expand links
     text = wikiLink.sub(make_anchor_tag, text)
     # Drop all remaining ones
@@ -717,12 +730,12 @@ minFileSize = 200 * 1024
 
 def main():
     global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
-    global keepAnchors, anchors_file, keepSeeAlso, xmlNSP
+    global keepAnchors, anchors_file, keepSeeAlso, keepCategoryInfo
     script_name = os.path.basename(sys.argv[0])
 
     try:
-        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'xmlnsp', 'seealso', 'anchors=', 'output=', 'version', 'ignore=', 'text']
-        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:pea:o:B:sv', long_opts)
+        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'category', 'seealso', 'anchors=', 'output=', 'version', 'ignore=', 'text']
+        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:gea:o:B:sv', long_opts)
     except getopt.GetoptError:
         show_usage(script_name)
         sys.exit(1)
@@ -770,8 +783,8 @@ def main():
                 keepAnchors = True
         elif opt in ('-e', '--seealso'):
                 keepSeeAlso = True
-        elif opt in ('-p', '--xmlnsp'):
-                xmlNSP = True
+        elif opt in ('-g', '--category'):
+                keepCategoryInfo = True
         elif opt in ('-v', '--version'):
                 print 'WikiExtractor.py version:', version
                 sys.exit(0)
