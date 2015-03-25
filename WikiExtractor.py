@@ -65,6 +65,9 @@ Options:
                           anchor_text|target_title
   -e, --seealso	       : keep see also titles (usually they represent 
                           semantically related topics)
+  -p, --xmlnsp	       : convert namespace lines into xml format 
+                          e.g., Category:companies --> 
+                          <Category>companies</Cateogory>
   -h, --help            : display this help and exit
 """
 
@@ -104,6 +107,11 @@ keepSections = False
 # Whether to keep See also section
 #
 keepSeeAlso = False
+
+##
+# Whether to convert namespaces into xml
+#
+xmlNSP = False
 
 ##
 # Recognize only these namespaces
@@ -406,7 +414,7 @@ parametrizedLink = re.compile(r'\[\[.*?\]\]')
 
 # Function applied to wikiLinks
 def make_anchor_tag(match):
-    global keepLinks, anchors_dic, keepAnchors
+    global keepLinks, anchors_dic, keepAnchors, xmlNSP
     link = match.group(1)
     colon = link.find(':')
     if colon > 0 and link[:colon] not in acceptedNamespaces:
@@ -418,12 +426,14 @@ def make_anchor_tag(match):
     elif anchor!=link and keepAnchors: 
         # add anchor to the anchors dictionary if not there
         if anchors_dic.has_key(link):
-            anchors_dic[link].add(anchor)            
+            anchors_dic[link].add(anchor)
         else:
             anchors_dic[link] = set([anchor])
     anchor += trail
     if keepLinks:
         return '<a href="%s">%s</a>' % (link, anchor)
+    elif xmlNSP==True and colon > 0 and link[:colon] in acceptedNamespaces:
+        return '<%s>%s</%s>' % (link[:colon],link[colon+1:],link[:colon])
     else:
         return anchor
 
@@ -707,12 +717,12 @@ minFileSize = 200 * 1024
 
 def main():
     global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
-    global keepAnchors, anchors_file, keepSeeAlso
+    global keepAnchors, anchors_file, keepSeeAlso, xmlNSP
     script_name = os.path.basename(sys.argv[0])
 
     try:
-        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'seealso', 'anchors=', 'output=', 'version', 'ignore=', 'text']
-        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:ea:o:B:sv', long_opts)
+        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'xmlnsp', 'seealso', 'anchors=', 'output=', 'version', 'ignore=', 'text']
+        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:pea:o:B:sv', long_opts)
     except getopt.GetoptError:
         show_usage(script_name)
         sys.exit(1)
@@ -760,6 +770,8 @@ def main():
                 keepAnchors = True
         elif opt in ('-e', '--seealso'):
                 keepSeeAlso = True
+        elif opt in ('-p', '--xmlnsp'):
+                xmlNSP = True
         elif opt in ('-v', '--version'):
                 print 'WikiExtractor.py version:', version
                 sys.exit(0)
