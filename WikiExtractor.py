@@ -412,7 +412,15 @@ wikiLink = re.compile(r'\[\[([^[]*?)(?:\|([^[]*?))?\]\](\w*)')
 
 categoryLink = re.compile(r'\[\[(Category:[^\|\]]*)(\|?.*)\]\]')
 
+seealsoLink = re.compile(r'\[\[([^\|\]]*)(\|?.*)\]\](.*)')
+
 parametrizedLink = re.compile(r'\[\[.*?\]\]')
+
+# Function applied to see also links
+def make_seealso_tag(match):
+
+    link = match.group(1)
+    return '<seealso>%s</seealso>' % (link)
 
 # Function applied to category links
 def make_category_tag(match):
@@ -444,22 +452,44 @@ def make_anchor_tag(match):
     else:
         return anchor
 
+def annotateSeeAlso(text):
+    new_text = ""
+    seealso_text = ""
+    inside_seealso = False
+    for line in text.split('\n'):
+        new_text = new_text + line + "\n"
+        if(line.startswith("==See also==")):
+            inside_seealso = True
+        elif inside_seealso==True:
+            if line:
+                line = seealsoLink.sub(make_seealso_tag, line)
+                if(line.find("<seealso>")!=-1):
+                    seealso_text = seealso_text + "\n" + line[line.find("<seealso>"):]
+            else:    
+                inside_seealso = False
+                new_text = new_text + seealso_text + "\n"                
+    
+    return new_text
+    
 def clean(text):
 
     # FIXME: templates should be expanded
     # Drop transclusions (template, parser functions)
     # See: http://www.mediawiki.org/wiki/Help:Templates
 
-    global keepCategoryInfo
+    global keepCategoryInfo, keepSeeAlso
     
+    if keepCategoryInfo==True:
+        text = categoryLink.sub(make_category_tag, text)
+        
+    if keepSeeAlso==True:
+        text = annotateSeeAlso(text)
+        
     text = dropNested(text, r'{{', r'}}')
 
     # Drop tables
     text = dropNested(text, r'{\|', r'\|}')
 
-    if keepCategoryInfo==True:
-        text = categoryLink.sub(make_category_tag, text)
-        
     # Expand links
     text = wikiLink.sub(make_anchor_tag, text)
     # Drop all remaining ones
@@ -540,12 +570,10 @@ section = re.compile(r'(==+)\s*(.*?)\s*\1')
 
 def compact(text):
     """Deal with headers, lists, empty sections, residuals of tables"""
-    global keepSeeAlso
     page = []                   # list of paragraph
     headers = {}                # Headers for unfilled sections
     emptySection = False        # empty sections are discarded
     inList = False              # whether opened <UL>
-    seeAlsoSection = False
     
     for line in text.split('\n'):
 
@@ -555,11 +583,6 @@ def compact(text):
         m = section.match(line)
         if m:
             title = m.group(2)
-            if keepSeeAlso:
-                if title.lower()=='see also': # this is See also section
-                    seeAlsoSection = True
-                else:
-                    seeAlsoSection = False
             lev = len(m.group(1))
             if keepSections:
                 page.append("<h%d>%s</h%d>" % (lev, title, lev))
@@ -581,9 +604,6 @@ def compact(text):
                 page.append(title)
         # handle lists
         elif line[0] in '*#:;':
-            if keepSeeAlso and seeAlsoSection:
-                # TODO: line[1:].encode('utf-8')
-                page.append("<seealso>%s</seealso>" % line[1:].lstrip())
             if keepSections:
                 page.append("<li>%s</li>" % line[1:])
             else:
