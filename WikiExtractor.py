@@ -458,17 +458,19 @@ def annotateSeeAlso(text):
     inside_seealso = False
     for line in text.split('\n'):
         new_text = new_text + line + "\n"
-        if(line.startswith("==See also==")):
+        if line.startswith("==See also==") or line.startswith("== See also =="):
             inside_seealso = True
         elif inside_seealso==True:
-            if line:
+            if not line:
+                continue
+            elif line.startswith("==") or line.startswith("</page>"): 
+                inside_seealso = False
+                new_text = new_text + seealso_text + "\n"
+            else:
                 line = seealsoLink.sub(make_seealso_tag, line)
                 if(line.find("<seealso>")!=-1):
                     seealso_text = seealso_text + "\n" + line[line.find("<seealso>"):]
-            else:    
-                inside_seealso = False
-                new_text = new_text + seealso_text + "\n"                
-    
+
     return new_text
     
 def clean(text):
