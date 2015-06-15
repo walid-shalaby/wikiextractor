@@ -443,9 +443,13 @@ def make_anchor_tag(match):
     elif anchor!=link and keepAnchors: 
         # add anchor to the anchors dictionary if not there
         if anchors_dic.has_key(link):
-            anchors_dic[link].add(anchor)
+            if(anchors_dic[link].__contains__(anchor)==True):
+                count = anchors_dic[link][anchor] + 1
+            else:
+                count = 1
+            anchors_dic[link][anchor] = count
         else:
-            anchors_dic[link] = set([anchor])
+            anchors_dic[link] = {anchor:1}
     anchor += trail
     if keepLinks:
         return '<a href="%s">%s</a>' % (link, anchor)
@@ -550,7 +554,7 @@ def clean(text):
             text = text.replace(match.group(), '%s_%d' % (placeholder, index))
             index += 1
 
-    text = text.replace('<<', u'«').replace('>>', u'»')
+    text = text.replace('<<', u'Â«').replace('>>', u'Â»')
 
     #############################################
 
@@ -562,8 +566,8 @@ def clean(text):
     text = text.replace('\t', ' ')
     text = spaces.sub(' ', text)
     text = dots.sub('...', text)
-    text = re.sub(u' (,:\.\)\]»)', r'\1', text)
-    text = re.sub(u'(\[\(«) ', r'\1', text)
+    text = re.sub(u' (,:\.\)\]Â»)', r'\1', text)
+    text = re.sub(u'(\[\(Â«) ', r'\1', text)
     text = re.sub(r'\n\W+?\n', '\n', text) # lines with only punctuations
     text = text.replace(',,', ',').replace(',.', '.')
     return text
@@ -846,8 +850,8 @@ def main():
     # write anchors
     if keepAnchors:
         for link in anchors_dic.keys():
-            for anchor in anchors_dic[link]:
-                anchors_file.write(link.encode('utf-8')+'|'+anchor.encode('utf-8')+os.linesep)
+            for anchor,count in anchors_dic[link].items():
+                anchors_file.write(link.encode('utf-8')+'|'+anchor.encode('utf-8')+'|'+str(count)+os.linesep)
         anchors_file.close
         
 if __name__ == '__main__':
