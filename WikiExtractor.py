@@ -79,7 +79,7 @@ import urllib
 import re
 import bz2
 import os.path
-from htmlentitydefs import name2codepoint
+from html.entities import name2codepoint
 
 ### PARAMS ####################################################################
 
@@ -164,16 +164,16 @@ def WikiDocument(out, id, title, text):
         footer = "\n</doc>"
         if out != sys.stdout:
             out.reserve(len(header) + len(text) + len(footer))
-        print >> out, header
+        print(header, end="", file=out)
     else:
         if out != sys.stdout:
             out.reserve(len(text))
 
     for line in compact(text):
-        print >> out, line.encode('utf-8')
+        print(line, end="", file=out)
 
     if outputHeader:
-        print >> out, footer
+        print(footer, end="", file=out)
 
 def WikiDocumentTrec(out, id, title, text):
     global anchors_file, anchors_dic
@@ -190,20 +190,19 @@ def WikiDocumentTrec(out, id, title, text):
         header = ("<doc>\n<title>%s</title>\n<docno>%s</docno>\n"
                   "<url>%s</url>\n<length>%d</length>\n<text>") % (title, id, url,length)
     # Separate header from text with a newline.
-        header = header.encode('utf-8')
         footer = "</text>\n</doc>"
         if out != sys.stdout:
             out.reserve(len(header) + len(text) + len(footer))
-        print >> out, header
+        print(header, end="", file=out)
     else:
         if out != sys.stdout:
             out.reserve(len(text))
 
     for line in compacted_text:
-        print >> out, line.encode('utf-8')
+        print(line, end="", file=out)
 
     if outputHeader:
-        print >> out, footer
+        print(footer, end="", file=out)
     
 def get_url(id, prefix):
     return "%s?curid=%s" % (prefix, id)
@@ -442,7 +441,7 @@ def make_anchor_tag(match):
         anchor = link
     elif anchor!=link and keepAnchors: 
         # add anchor to the anchors dictionary if not there
-        if anchors_dic.has_key(link):
+        if anchors_dic.__contains__(link):
             if(anchors_dic[link].__contains__(anchor)==True):
                 count = anchors_dic[link][anchor] + 1
             else:
@@ -554,7 +553,7 @@ def clean(text):
             text = text.replace(match.group(), '%s_%d' % (placeholder, index))
             index += 1
 
-    text = text.replace('<<', u'Â«').replace('>>', u'Â»')
+    text = text.replace('<<', u'«').replace('>>', u'»')
 
     #############################################
 
@@ -566,8 +565,8 @@ def clean(text):
     text = text.replace('\t', ' ')
     text = spaces.sub(' ', text)
     text = dots.sub('...', text)
-    text = re.sub(u' (,:\.\)\]Â»)', r'\1', text)
-    text = re.sub(u'(\[\(Â«) ', r'\1', text)
+    text = re.sub(u' (,:\.\)\]»)', r'\1', text)
+    text = re.sub(u'(\[\(«) ', r'\1', text)
     text = re.sub(r'\n\W+?\n', '\n', text) # lines with only punctuations
     text = text.replace(',,', ',').replace(',.', '.')
     return text
@@ -596,9 +595,12 @@ def compact(text):
                 title += '.'
             headers[lev] = title
             # drop previous headers
+            to_delete = []
             for i in headers.keys():
                 if i > lev:
-                    del headers[i]
+                    to_delete.append(i)
+            for i in to_delete:
+                del headers[i]
             emptySection = True            
             continue
         # Handle page title
@@ -622,7 +624,7 @@ def compact(text):
             continue
         elif len(headers):
             items = headers.items()
-            items.sort()
+            sorted(items)
             for (i, v) in items:
                 page.append(v)
             headers.clear()
@@ -673,7 +675,7 @@ class OutputSplitter:
         if self.compress:
             return bz2.BZ2File(file_name + '.bz2', 'w')
         else:
-            return open(file_name, 'w')
+            return open(file_name, 'w', encoding='utf-8')
 
     def dir_name(self):
         char1 = self.dir_index % 26
@@ -697,7 +699,7 @@ def process_data(input, output):
     inText = False
     redirect = False
     for line in input:
-        line = line.decode('utf-8')
+        line = line#.decode('utf-8')
         tag = ''
         if '<' in line:
             m = tagRE.search(line)
@@ -728,7 +730,7 @@ def process_data(input, output):
             colon = title.find(':')
             if (colon < 0 or title[:colon] in acceptedNamespaces) and \
                     not redirect:
-                print id, title.encode('utf-8')
+                print(id, title.encode('utf-8'))
                 sys.stdout.flush()
                 WikiDocumentTrec(output, id, title, ''.join(page))
                 docs+=1
@@ -755,6 +757,7 @@ def show_usage(script_name):
 minFileSize = 200 * 1024
 
 def main():
+    import io
     global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
     global keepAnchors, anchors_file, keepSeeAlso, keepCategoryInfo
     script_name = os.path.basename(sys.argv[0])
@@ -812,7 +815,7 @@ def main():
         elif opt in ('-g', '--category'):
                 keepCategoryInfo = True
         elif opt in ('-v', '--version'):
-                print 'WikiExtractor.py version:', version
+                print('WikiExtractor.py version:', version)
                 sys.exit(0)
 
     if len(args) > 0:
@@ -835,7 +838,7 @@ def main():
 
     if keepAnchors:
         try:
-            anchors_file = open(anchors_path,'w')            
+            anchors_file = open(anchors_path,'w',encoding='utf-8')            
         except:
             print >> sys.stderr, 'Could not create: ', anchors_path
             return
@@ -843,15 +846,16 @@ def main():
     if not keepLinks:
         ignoreTag('a')
 
-
-    process_data(sys.stdin, output_splitter)
+    
+    input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+    process_data(input_stream, output_splitter)
     output_splitter.close()
 
     # write anchors
     if keepAnchors:
         for link in anchors_dic.keys():
             for anchor,count in anchors_dic[link].items():
-                anchors_file.write(link.encode('utf-8')+'|'+anchor.encode('utf-8')+'|'+str(count)+os.linesep)
+                anchors_file.write(link+'|'+anchor+'|'+str(count)+os.linesep)
         anchors_file.close
         
 if __name__ == '__main__':
