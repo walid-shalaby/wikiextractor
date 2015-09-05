@@ -193,16 +193,16 @@ def WikiDocumentTrec(out, id, title, text):
         footer = "</text>\n</doc>"
         if out != sys.stdout:
             out.reserve(len(header) + len(text) + len(footer))
-        print(header, end="", file=out)
+        print(header, end="\n", file=out)
     else:
         if out != sys.stdout:
             out.reserve(len(text))
 
     for line in compacted_text:
-        print(line, end="", file=out)
+        print(line, end="\n", file=out)
 
     if outputHeader:
-        print(footer, end="", file=out)
+        print(footer, end="\n", file=out)
     
 def get_url(id, prefix):
     return "%s?curid=%s" % (prefix, id)
@@ -477,6 +477,7 @@ def annotateSeeAlso(text):
     return new_text
     
 def clean(text):
+    import html
 
     # FIXME: templates should be expanded
     # Drop transclusions (template, parser functions)
@@ -518,6 +519,8 @@ def clean(text):
     text = unescape(text)
     # do it again (&amp;nbsp;)
     text = unescape(text)
+
+    text = html.unescape(text)
 
     # Collect spans
 
@@ -690,6 +693,8 @@ class OutputSplitter:
 tagRE = re.compile(r'(.*?)<(/?\w+)[^>]*>(?:([^<]*)(<.*?>)?)?')
 
 def process_data(input, output):
+    import html
+
     global prefix
 
     docs = 0
@@ -699,7 +704,7 @@ def process_data(input, output):
     inText = False
     redirect = False
     for line in input:
-        line = line#.decode('utf-8')
+        line = html.unescape(line)
         tag = ''
         if '<' in line:
             m = tagRE.search(line)
