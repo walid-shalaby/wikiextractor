@@ -1,0 +1,163 @@
+WikiLiner enwiki-20160501-pages-articles-multistream.xml.bz2 enwiki-20160501-pages-articles-multistream-lines.xml.bz2  
+
+cat enwiki-20150901-pages-articles-multistream-sample.xml | sed ':a;N;$!ba;s/\n/][$#@@#$][/g' | sed -e 's/<page>/\n<page>/g' | tail -n +2  > enwiki-20150901-pages-articles-multistream-sample-lines.xml
+cat enwiki-20150901-pages-articles-multistream-sample.xml | perl -pe 's/\n/\]\[\$\#@@\#\$\]\[/g' | perl -pe 's/<page>/\n<page>/g' | tail -n +2  > enwiki-20150901-pages-articles-multistream-sample-lines.xml
+
+tail -n +46 enwiki-20150901-pages-articles-multistream-sample.xml | sed -n '/<page>/{p;:a;N;/<\/page>/!ba;s/\n/][$#@@#$][/g};p' | perl -pe 's/\s*<page>\n//g'> tmp.txt
+
+tail -n +42 enwiki-20150304-pages-articles-multistream.xml | sed -n '/<page>/{:a;N;/<\/page>/!ba;s/\n/][$#@@#$][/g};p' > enwiki-20150304-pages-articles-multistream-lines.xml
+
+hdfs dfs -rm -r enwiki-20150304
+hdfs dfs -rm -r hdfs://urc-hadoop/user/wshalaby/.Trash/Current
+
+spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml -o enwiki-20150304 -e -a wiki20150304_anchors.txt
+
+
+hdfs dfs -text wiki20150304-docs/* > solrwiki.txt
+nano solrwiki.txt
+
+
+cat enwiki-20150304-pages-articles-multistream.xml | tr '\r\n' '\n' > enwiki-20150304-pages-articles-multistream-lines.xml
+
+cat enwiki-20150304-pages-articles-multistream.xml | sed ':a;N;$!ba;s/\n/][$#@@#$][/g' > enwiki-20150304-pages-articles-multistream-lines.xml
+cat enwiki-20150304-pages-articles-multistream-lines.xml | sed -e 's/<page>/\n<page>/g' > enwiki-20150304-pages-articles-multistream-lines1.xml
+cat enwiki-20150304-pages-articles-multistream-lines1.xml | tail -n +2 > enwiki-20150304-pages-articles-multistream-lines.xml
+
+
+java SolrUpdate /home/wshalaby/work/github/wikiextractor/solrupdate localhost:5678
+java SolrUpdate /users/wshalaby/wikipedia/solrupdate 10.18.203.79:5050
+
+
+java -Dsolr.solr.home=wikipedia -Djetty.port=5678 -jar start.jar 
+
+java -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=1044 -Dsolr.solr.home=patents -Djetty.port=9091 -jar -Dwikiurl=http://localhost:5678/solr/collection1/  -Dassociationspath=./wiki_associations.txt start.jar
+
+java -Dsolr.solr.home=patents -Djetty.port=9091 -jar -Dwikiurl=http://localhost:5678/solr/collection1/  -Dassociationspath=./wiki_associations.txt start.jar
+
+index updater
+----------------
+it will work only if all index fields are stored
+java -jar indexupdater.jar update http://localhost:5678/solr/collection1/ title pagerank /home/wshalaby/work/github/WikiToolbox/indexupdater.txt on
+java -jar indexupdater.jar keep http://10.18.202.74:4321/solr/collection1 title ../../patents/innovation-analytics/data/esa/DatalessClassification/data/titles.txt on
+
+java -jar indexupdater.jar http://10.18.202.74:5678/solr/collection1/ title pagerank ./pagerank-splits/pagerank-splitsaa on
+
+raw index updater
+----------------
+I did it from 74 machine wikitoolbox as urc-hadoop was too slow then i moved the file back to hadoop to do solrupdate-with-pagerank
+java -jar rawindexupdater.jar /scratch/wshalaby/wikipedia/wiki-pagerank.txt /scratch/wshalaby/wikipedia/solrupdate/enwiki-20150304.txt /scratch/wshalaby/wikipedia/solrupdate/enwiki-20150304-with-pagerank.txt 
+
+java -jar rawindexupdater.jar wiki-pagerank.txt enwiki-20150304.txt enwiki-20150304-with-pagerank.txt 
+
+java SolrUpdate /scratch/wshalaby/wikipedia/solrupdate-with-pagerank 10.18.202.74:5678 > ~/wikipedia/pagerank-index.txt
+
+semantic-generator
+--------------------
+java -jar semanticsgenerator-main.jar
+
+/media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/github/WikiToolbox/bin/wiki/toolbox/wiki/generator_commands.txt
+/media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/github/WikiToolbox/bin/wiki/toolbox/wiki/generator_reuters.txt
+/home/wshalaby/work/github/WikiToolbox/generator_commands.txt
+/home/wshalaby/work/github/WikiToolbox/generator_reuters.txt
+/home/wshalaby/work/github/WikiToolbox/samplegenerator.txt
+
+--input /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/CLEF/titles.tsv --output /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/CLEF/semantics/titles --max-title-ngrams 3 --max-seealso-ngrams 3 method MSA_seealso --field alltext --max-hits 5000 --concepts-num 100 --min-len 0 --min-seealso-len 0 --min-asso-cnt 1 --relax-same-title off --abs-explicit off --title-search off --relax-cache off --relax-seealso off --relax-disambig off --relax-listof off --relax-ner off --relax-categories off --relatedness-expr off --semantics-separator tab --file-separator #4!~ --write-ids on --threads-num 20 --block-size 1000 --wikiurl http://localhost:5678/solr/collection1/ --extra-q none
+
+--extra-q AND%2BNOT%2Btitle%253Alist*%2BAND%2BNOT%2Btitle%253Aindex*%2BAND%2BNOT%2Btitle%253A*disambiguation*
+
+--input /home/wshalaby/work/github/WikiToolbox/generatorsample.txt --output /home/wshalaby/work/github/WikiToolbox/semantics --max-title-ngrams 3 --max-seealso-ngrams 3 method MSA_seealso --field alltext --max-hits 1000 --concepts-num 100 --min-len 0 --min-seealso-len 0 --min-asso-cnt 1 --relax-same-title off --abs-explicit off --title-search off --relax-cache off --relax-seealso off --relax-disambig off --relax-listof off --relax-ner off --relax-categories off --relatedness-expr off --semantics-separator tab --file-separator \n --write-ids on --write-content on --row-based on --threads-num 20 --block-size 1000 --wikiurl http://localhost:5678/solr/collection1/ --extra-q none
+
+
+msa_5000_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext
+
+spark-submit SemanticsGenerator.py -p clef_titles_abstract.tsv -o msa_1000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext
+
+relatedness-experiment
+-----------------------
+java -jar semanticsgenerator-main.jar
+
+/home/wshalaby/work/github/WikiToolbox/commands.txt
+
+/media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/github/WikiToolbox/bin/wiki/toolbox/wiki/mc-30_relatedness_commands.txt
+/media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/github/WikiToolbox/bin/wiki/toolbox/wiki/rg-65_relatedness_commands.txt
+
+python commands.py > /home/wshalaby/work/github/WikiToolbox/relatedness_commands.txt
+
+python correlations.py RG-65 /media/wshalaby/cf5aa895-3575-464f-acef-0df6632a2435/wshalaby/solr/example/results/RG-65/ /media/wshalaby/cf5aa895-3575-464f-acef-0df6632a2435/wshalaby/solr/example/results/RG-65.txt p
+
+--input /home/wshalaby/work/github/WikiToolbox/test-relatedness-in.txt --output /home/wshalaby/work/github/WikiToolbox/test-relatedness-out.txt --max-title-ngrams 3 --max-seealso-ngrams 3 method MSA_seealso --field alltext --max-hits 1000 --concepts-num 100 --min-len 0 --min-seealso-len 0 --min-asso-cnt 1 --relax-same-title off --abs-explicit off --title-search off --relax-cache off --relax-seealso off --relax-disambig off --relax-listof off --relax-ner off --relax-categories off --relatedness-expr on --distance cosine --wikiurl http://localhost:5678/solr/collection1/
+
+cat wiki-index.xml | grep -A1 "<field name='title'" | grep -v "<field name='title'" > titlex.txt
+
+associations miner
+-------------------
+http://localhost:4321/solr/collection1/
+
+patents semantics
+------------------
+select 'label',A.Id,A.title||A.abstract from patents_dest  A,patent_abstract_language B where A.Id=B.Id and B.language='en';
+
+select 'label',A.Id,A.title||A.body from reuters21578 A;
+
+paste --delimiter=\\n --serial 13/* > merged.txt
+
+
+ng20 features
+------------------
+create table weights_ng20_msa_200_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext(id integer primary key, name text, sem_id integer, weight double);
+
+.separator \t
+select "label",id,replace(replace(replace(data,char(13)," "),char(10)," "),char(9)," ") from ng20 limit 1;
+
+reuters features
+------------------
+CREATE TABLE msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext (id Integer not null, concepts text);
+CREATE VIEW msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext_vw as select A.id,B.concepts,A.is_train from reuters21578 A , msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext B where A.id=B.id;
+
+weighted features
+-------------------
+create table weights_reuters_msa_200_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext(id integer, name text, sem_id integer, weight double);
+create index id_msa on weights_reuters_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext(id);
+paste --delimiter=\\n --serial /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/reuters21578/semantics/msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext/label/* > 
+paste --delimiter=\\n --serial * > msa_features.txt
+.import /home/wshalaby/work/github/WikiToolbox/reuters_msa_1000_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext.txt weights_reuters_msa_1000_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext
+select doc_id as id,group_concat(topic_id,',') as topics from docs_topics_join group by doc_id;
+select id,group_concat(sem_id||':'||weight,' ') as features from msa_features group by id;
+.output reuters_msa_1000_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext.svm
+select topics||' '||features from (select doc_id as id,group_concat(topic_id,',') as topics from reuters21578_topics_join group by doc_id) A, (select id,group_concat(sem_id||':'||weight,' ') as features from weights_reuters_msa_1000_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext group by id) B where A.id=B.id;
+select topics||' '||features from (select doc_id as id,group_concat(topic_id,',') as topics from reuters21578_topics_join group by doc_id) A, (select id,group_concat(sem_id||':'||weight,' ') as features from (select * from weights_reuters_msa_1000_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext order by sem_id) group by id) B, reuters21578 C where A.id=B.id and C.id=A.id and C.id=B.id and is_train=1;
+
+XXXcreate table weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext(id integer, name text, sem_id integer, weight double);
+create table one_weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext(id integer, name text, sem_id integer, weight double);
+XXXinsert into one_weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext(id, name, sem_id, weight) select id, name, sem_id, weight from weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext;
+create table one_weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext_mappings(id integer, indx integer);
+select count(distinct(sem_id)) from one_weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext;
+update one_weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext set sem_id=45580841-sem_id+1;
+.output ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext.svm
+select A.topic_id||' '||features from ng20 A, (select id,group_concat(sem_id||':'||weight,' ') as features from (select * from weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext order by sem_id) group by id) B where A.id=B.id and A.is_train=1;
+.output ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext.svm
+select A.topic_id||' '||features from ng20 A, (select id,group_concat(indx||':'||weight,' ') as features from (select t1.id,t1.weight,t2.indx from weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext t1,one_weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext_mappings t2 where t1.sem_id=t2.id order by t2.indx) group by id) B where A.id=B.id and A.is_train=1;
+
+select A.id,A.data||char(10)||features from ng20 A, (select id,group_concat(name,',') as features from (select id,name from weights_ng20_msa_500_gram3_seealsogram3_len0_seelen0_seealso_sup1_con100_alltext) group by id) B where A.id=B.id and is_train=1;
+
+paste --delimiter=\\n --serial /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/reuters21578/semantics/msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext/label/* > /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/reuters21578/msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext.txt
+for f in /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/reuters21578/semantics/msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext/label/*; do cat /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/reuters21578/msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext.txt | paste - $f >temp; cp temp /media/wshalaby/b667e28e-5e90-4884-8810-5d897c9e56ce/work/patents/patents-similarity/data/reuters21578/msa_2000_gram100_seealsogram100_len0_seelen0_seealso_sup1_con500_alltext.txt; done; rm temp
+
+for f in /home/wshalaby/work/github/WikiToolbox/semantics/clef_msa_200_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext/label/*; do cat /home/wshalaby/work/github/knowledge-based-dimensionality-reduction/data/CLEF/clef_msa_200_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext.txt | paste - $f >temp; cp temp /home/wshalaby/work/github/knowledge-based-dimensionality-reduction/data/CLEF/clef_msa_200_gram3_seealsogram3_len0_seelen0_seealso_sup1_con500_alltext.txt; done; rm temp
+
+Sep
+-----
+cat Sep.list | tr '\r\n' ' ' | sed -e 's/<field> name=/<field name=/g'| sed -e 's/<\/add>/<\/add>\n/g' > solrupdate/seplines.list
+java -Dsolr.solr.home=sep-wiki -Djetty.port=4321 -jar start.jar
+java SolrUpdate /home/wshalaby/work/github/wikiextractor/sep/solrupdate localhost:4321
+java -Dsolr.solr.home=sep-patents -Djetty.port=9099 -jar -Dwikiurl=http://localhost:4321/solr/collection1/ -Dassociationspath=./sep_associations.txt start.jar
+
+java -Dsolr.solr.home=wiki-patents -Dwikiurl=http://10.18.202.74:5678/solr/collection1 -Dassociationspath=./wiki_associations.txt -Djetty.port=9098 -jar start.jar
+
+curl 'http://10.18.202.74:5051/solr/collection1/select?q=Mined+Semantic+Analysis+is+a+novel+distributional+semantics+approach+which+employs+data+mining+techniques.+MSA+embraces+knowledge-driven+analysis+of+natural+languages.+It+uncovers+implicit+relations+between+concepts+by+mining+for+their+associations+in+target+encyclopedic+corpora.+MSA+exploits+not+only+target+corpus+content+but+also+its+knowledge+graph+(e.g.See+also+link+graph+of+Wikipedia).+Empirical+results+show+competitive+performance+of+MSA+compared+to+prior+state-of-the-art+methods+for+measuring+se+mantic+relatedness+on+enchmark+data+sets.+Additionally%2C+we+introduce+the+first+analytical+study+to+examine+statistical+sig-+nificance+of+results+reported+by+different+semantic+relatedness+methods.+Our+study+shows+that%2C+top+performing+results+could+be+statistically+equivalent+though+mathematically+different.+The+study+positions+MSA+as+one+of+state-of-the-art+methods+for+measuring+semantic+relatedness.&fq=title_ngrams%3A%5B0+TO+3%5D+AND+length%3A%5B0+TO+*%5D+AND+NOT+title%3Alist*+AND+NOT+title%3Aindex*+AND+NOT+title%3A*disambiguation*&rows=500&fl=score%2Ctitle%2Canchor%2Cseealso%2Cseealso_ngrams&wt=json&indent=true&defType=edismax&qf=alltext'
+
+curl 'http://10.18.202.74:5051/solr/collection1/select?q=Mined+Semantic+Analysis+a+novel+distributional+semantics+approach&fq=title_ngrams%3A%5B0+TO+3%5D+AND+length%3A%5B0+TO+*%5D+AND+NOT+title%3Alist*+AND+NOT+title%3Aindex*+AND+NOT+title%3A*disambiguation*&rows=500&fl=score%2Ctitle%2Canchor%2Cseealso%2Cseealso_ngrams&wt=json&indent=true&defType=edismax&qf=alltext'
+
+curl http://localhost:5051/solr/query/?q=Mined+Semantic+Analysis+is+a+novel+distributional+semantics+approach+which+employs+data+mining+techniques.+MSA+embraces+knowledge-driven+analysis+of+natural+languages.+It+uncovers+implicit+relations+between+concepts+by+mining+for+their+associations+in+target+encyclopedic+corpora.+MSA+exploits+not+only+target+corpus+content+but+also+its+knowledge+graph+(e.g.,+See+also+link+graph+of+Wikipedia).+Empirical+results+show+competitive+performance+of+MSA+compared+to+prior+state-of-the-art+methods+for+measuring+se+mantic+relatedness+on+enchmark+data+sets.+Additionally,+we+introduce+the+first+analytical+study+to+examine+statistical+sig-+nificance+of+results+reported+by+different+semantic+relatedness+methods.+Our+study+shows+that,+top+performing+results+could+be+statistically+equivalent+though+mathematically+different.+The+study+positions+MSA+as+one+of+state-of-the-art+methods+for+measuring+semantic+relatedness&defType=edismax&indent=true&qf=alltext&fl=score,title,anchor,seealso,seealso_ngrams&fq=title_ngrams:[0+TO+3]+AND+length:[0+TO+*]+AND+NOT+title:list*+AND+NOT+title:index*+AND+NOT+title:*disambiguation*&rows=500&wt=json&debug=true
+
+curl "http://10.18.202.74:5678/solr/query/?q=An+improved+method+to+access+software+components+on+a+server+network,+such+as+enterprise+beans+according+to+the+Enterprise+JavaBeans+architecture,+by+using+a+wrapper+called+an+Access+Bean.+Access+Beans+hide+the+home+and+remote+interface+methods+of+an+Enterprise+JavaBeans+server+from+a+client+program+so+that+the+task+of+consuming+an+enterprise+bean+is+one+of+consuming+a+standard+Java+bean.+The+home+interface+method+of+the+enterprise+bean+is+mapped+to+appropriate+constructors+in+the+Access+Bean;+and+the+remote+interface+method+of+the+enterprise+bean+is+mapped+to+Java+Beans+methods+which+in+turn+call+the+corresponding+business+methods+on+the+enterprise+bean.+More+than+one+type+of+Access+Bean+permits+caching+of+attributes+of+the+enterprise+bean+and+indexing+the+cache+so+that+a+plurality+of+instances+of+an+enterprise+bean+can+be+efficiently+supported&defType=edismax&indent=true&qf=alltext&fl=score,title,anchor,seealso,seealso_ngrams&fq=title_ngrams:[0+TO+3]+AND+length:[0+TO+*]+AND+NOT+title:list*+AND+NOT+title:index*+AND+NOT+title:*disambiguation*&rows=500&wt=json"

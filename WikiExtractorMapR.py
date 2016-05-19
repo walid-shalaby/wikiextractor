@@ -49,6 +49,8 @@ Each file contains several documents in Tanl document format:
 Usage:
   WikiExtractor.py [options]
   cat enwiki-20150304-pages-articles-multistream.xml | python WikiExtractor.py -g -o wiki20150304-docs -e -a wiki20150304_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml.bz2 -o wiki20150304 -e -a wiki20150304_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20160501-pages-articles-multistream-lines.xml.bz2 -o wiki20160501 -e -a wiki20160501_anchors.txt
   
 Options:
   -c, --compress        : compress output files using bzip
@@ -66,12 +68,12 @@ Options:
                           anchor_text|target_title
   -e, --seealso	       : keep see also titles (usually they represent 
                           semantically related topics)
-  -p, --category	       : keep category information
+  -g, --category	       : keep category information
                           e.g., [Category:companies] --> 
                           <Category>companies</Cateogory>
   -h, --help            : display this help and exit
 """
-
+from __future__ import print_function
 import sys
 import time
 import gc
@@ -80,9 +82,11 @@ import urllib
 import re
 import bz2
 import os.path
-from html.entities import name2codepoint
+#from html.entities import name2codepoint
+from htmlentitydefs import name2codepoint
 
 ### PARAMS ####################################################################
+MapR = True
 
 # This is obtained from the dump itself
 prefix = None
@@ -204,7 +208,122 @@ def WikiDocumentTrec(out, id, title, text):
 
     if outputHeader:
         print(footer, end="\n", file=out)
+
+def getTitleNgrams(title):
+    indx = len(title)-1
+    indx1 = title.find('(')
+    if indx1!=-1:
+        indx = indx1 - 1
+    indx1 = title.find(',')
+    if indx1!=-1 and indx1<indx:
+        indx = indx1 - 1
     
+    return len(title[:indx].split(' '))
+        
+def WikiDocumentSolr(id, title, text, redirect=False):
+    global anchors_file, anchors_dic
+    #url = get_url(id, prefix)
+    if not redirect:
+        text = clean(text)
+        compacted_text = compact(text)
+    
+        out = unicode("")
+        
+        # calculate text length    
+        length = 0
+        for line in compacted_text:
+            length += len(line)+len(os.linesep)
+            
+        if outputHeader:
+            header = ("<field name=\"id\"><![CDATA[%s]]></field>"
+                      "<field name=\"title\"><![CDATA[%s]]></field>"
+                      "<field name=\"title_ngrams\"><![CDATA[%d]]></field>"
+                      "<field name=\"length\"><![CDATA[%d]]></field>"
+                      "<field name=\"text\"><![CDATA[") % (id, title, \
+                      getTitleNgrams(title), length)
+        # Separate header from text with a newline.
+        out = header
+        
+        first = False
+        seealso_text = ""
+        anchors = []
+        for line in compacted_text:
+            if line.startswith("<seealso>"):
+                seealso_text = line.replace("<seealso>","<field name=\"seealso\"><![CDATA[") \
+                                    .replace("</seealso>","]]></field>") \
+                                    .replace("<seealso_ngrams>","<field name=\"seealso_ngrams\"><![CDATA[") \
+                                    .replace("</seealso_ngrams>","]]></field>")
+            elif line.startswith("<wiki-anchor>"):
+                anchor = line.replace("<wiki-anchor>","") \
+                    .replace("</wiki-anchor>","") \
+                    .split("##$@@$##")
+                
+                if len(anchor)==2:
+                    anchors.append((anchor[0], \
+                        "<field name=\"anchor\"><![CDATA["+ \
+                        anchor[1]+ \
+                        "]]></field>"))
+                        
+            elif line.startswith("<wiki-category>"):
+                if first==False:
+                    out += "]]></field>" + line.replace("<wiki-category>","<field name=\"category\"><![CDATA[") \
+                                                .replace("</wiki-category>","]]></field>")
+                    first = True
+                else:
+                    out += line.replace("<wiki-category>","<field name=\"category\"><![CDATA[") \
+                                                .replace("</wiki-category>","]]></field>")
+            else:
+                out += line + "\n"
+        
+        if first==False: # no categories for this page
+            out += "]]></field>"
+                
+        if len(seealso_text)>0:
+            out += seealso_text
+            
+        return (out,anchors)
+    else:
+        return ("<field name=\"redirect\"><![CDATA[%s]]></field>") % (text)
+        
+def WikiDocumentSolr1(id, title, text):
+    global anchors_file, anchors_dic, keepSeeAlso, keepCategoryInfo
+    seealso_text = ""
+    category_text = ""
+    url = get_url(id, prefix)
+    text = clean(text)
+    compacted_text = compact(text)
+    
+    # calculate text length
+    text = ""
+    for line in compacted_text:
+        text += line + "\n"
+        
+    length = len(text)
+    
+    if keepSeeAlso and text.find("<seealso>")!=-1:
+        seealso_text,tmp,text = text.rpartition("</seealso>")
+        seealso_text = seealso_text + tmp
+    if keepCategoryInfo and text.find("<Category>")!=-1:    
+        text,tmp,category_text = text.partition("<Category>")
+        category_text = tmp + category_text
+    
+    out = unicode("")
+    
+    if outputHeader:
+        header = ("<doc><title>%s</title><docno>%s</docno>"
+                  "<url>%s</url><length>%d</length>%s%s<text>") % (title, id, url,length,seealso_text,category_text)
+    # Separate header from text with a newline.
+        footer = "</text></doc>"
+        out = header
+    
+    for line in text:
+            out += line + "\n"
+        
+    if outputHeader:
+        out += footer
+    
+    return out
+        
 def get_url(id, prefix):
     return "%s?curid=%s" % (prefix, id)
 
@@ -420,14 +539,16 @@ parametrizedLink = re.compile(r'\[\[.*?\]\]')
 def make_seealso_tag(match):
 
     link = match.group(1)
-    return '<seealso>%s</seealso>' % (link)
+    return '<seealso>%s</seealso><seealso_ngrams>%d</seealso_ngrams>' % (link, \
+                                getTitleNgrams(link))
 
 # Function applied to category links
 def make_category_tag(match):
 
     link = match.group(1)
     colon = link.find(':')
-    return '<%s>%s</%s>' % (link[:colon],link[colon+1:],link[:colon])
+    #return '<%s>%s</%s>' % (link[:colon],link[colon+1:],link[:colon])
+    return '<wiki-category>%s</wiki-category>' % (link[colon+1:])
 
 # Function applied to wikiLinks
 def make_anchor_tag(match):
@@ -440,16 +561,19 @@ def make_anchor_tag(match):
     anchor = match.group(2)
     if not anchor:
         anchor = link
-    elif anchor!=link and keepAnchors: 
-        # add anchor to the anchors dictionary if not there
-        if anchors_dic.__contains__(link):
-            if(anchors_dic[link].__contains__(anchor)==True):
-                count = anchors_dic[link][anchor] + 1
+    elif anchor!=link and len(link)>0 and len(anchor)>0 and keepAnchors: 
+        if not MapR:
+            # add anchor to the anchors dictionary if not there
+            if anchors_dic.__contains__(link):
+                if(anchors_dic[link].__contains__(anchor)==True):
+                    count = anchors_dic[link][anchor] + 1
+                else:
+                    count = 1
+                anchors_dic[link][anchor] = count
             else:
-                count = 1
-            anchors_dic[link][anchor] = count
+                anchors_dic[link] = {anchor:1}
         else:
-            anchors_dic[link] = {anchor:1}
+            return '\n<wiki-anchor>%s##$@@$##%s</wiki-anchor>\n' % (link,anchor)
     anchor += trail
     if keepLinks:
         return '<a href="%s">%s</a>' % (link, anchor)
@@ -469,17 +593,16 @@ def annotateSeeAlso(text):
                 continue
             elif line.startswith("==") or line.startswith("</page>"): 
                 inside_seealso = False
-                new_text = new_text + seealso_text + "\n"
+                new_text = new_text + "\n" + seealso_text + "\n"
             else:
                 line = seealsoLink.sub(make_seealso_tag, line)
                 if(line.find("<seealso>")!=-1):
-                    seealso_text = seealso_text + "\n" + line[line.find("<seealso>"):]
+                    seealso_text += line[line.find("<seealso>"):]
+                    #seealso_text = seealso_text + "\n" + line[line.find("<seealso>"):]
 
     return new_text
     
 def clean(text):
-    import html
-
     # FIXME: templates should be expanded
     # Drop transclusions (template, parser functions)
     # See: http://www.mediawiki.org/wiki/Help:Templates
@@ -520,8 +643,6 @@ def clean(text):
     text = unescape(text)
     # do it again (&amp;nbsp;)
     text = unescape(text)
-
-    text = html.unescape(text)
 
     # Collect spans
 
@@ -721,7 +842,6 @@ def process_data(input, output):
             title = m.group(3)
         elif tag == 'redirect':
             redirect = True
-            print(m.group(0))
         elif tag == 'text':
             inText = True
             line = line[m.start(3):m.end(3)] + '\n'
@@ -764,15 +884,106 @@ def show_usage(script_name):
 # Minimum size of output files
 minFileSize = 200 * 1024
 
+def merge(key, text):
+    text = key+"\t"+"<add><doc>"+''.join(text)+"</doc></add>"
+    if text.find("<field name=\"id\">")!=-1:
+        return text
+    else:
+        return None
+
+if MapR==True:
+    from pyspark import SparkContext
+
+def process(sc, input_dir, output_dir):
+    inp = sc.textFile(input_dir)
+    out = inp.flatMap(lambda line: process_page(line)) \
+             .filter(lambda line: line!= None) \
+             .groupByKey().map(lambda x: merge(x[0],list(x[1]))) \
+             .filter(lambda line: line!= None)
+             
+    out.saveAsTextFile(output_dir)
+
+def process_page(page):
+    import HTMLParser
+    global prefix
+
+    anchors = []
+    h = HTMLParser.HTMLParser()
+    input = page.replace("][$#@@#$][","\n")
+    output = unicode("")
+    page = []
+    id = None
+    inText = False
+    redirect = False
+    for line in input.splitlines():
+        line += '\n'
+        tag = ''
+        if '<' in line:
+            m = tagRE.search(line)
+            if m:
+                tag = m.group(2)
+        
+        line = h.unescape(line)        
+        if tag == 'page':
+            page = []
+            redirect = False
+        elif tag == 'id' and not id:
+            id = m.group(3)
+        elif tag == 'title':
+            title = m.group(3)
+        elif tag == 'redirect':
+            redirect = True
+            page.append(title)
+            title = m.group(0).strip().split('"')[1]
+        elif tag == 'text':
+            inText = True
+            line = line[m.start(3):m.end(3)] + '\n'
+            page.append(line)
+            if m.lastindex == 4: # open-close
+                inText = False
+        elif tag == '/text':
+            if m.group(1):
+                page.append(m.group(1) + '\n')
+            inText = False
+        elif inText:
+            page.append(line)
+        elif tag == '/page':
+            colon = title.find(':')
+            if (colon < 0 or title[:colon] in acceptedNamespaces):
+                if redirect:
+                    output = WikiDocumentSolr(id, title, ''.join(page[0]), redirect=True)
+                else:
+                    print(id, title.encode('utf-8'))
+                    sys.stdout.flush()
+                    output,anchors = WikiDocumentSolr(id, title, ''.join(page))
+            id = None
+            page = []
+        elif tag == 'base':
+            # discover prefix from the xml dump file
+            # /mediawiki/siteinfo/base
+            base = m.group(3)
+            prefix = base[:base.rfind("/")]
+            
+    if len(output)>0:
+        out = []
+        out.append((title, output.replace("\n"," \\n ")))
+        out.extend(anchors)
+        return ((kv[0],kv[1]) for kv in out)
+    else:
+        return (None,None)
+    
 def main():
     import io
     global keepLinks, keepSections, prefix, acceptedNamespaces, outputHeader
     global keepAnchors, anchors_file, keepSeeAlso, keepCategoryInfo
     script_name = os.path.basename(sys.argv[0])
 
+    if MapR==True:
+        sc = SparkContext(appName="WikiExtractor")
+    
     try:
-        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'category', 'seealso', 'anchors=', 'output=', 'version', 'ignore=', 'text']
-        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:gea:o:B:sv', long_opts)
+        long_opts = ['help', 'compress', 'bytes=', 'basename=', 'links', 'ns=', 'sections', 'category', 'seealso', 'anchors=', 'output=', 'input=', 'version', 'ignore=', 'text']
+        opts, args = getopt.gnu_getopt(sys.argv[1:], 'i:tcb:hln:gea:o:p:B:sv', long_opts)
     except getopt.GetoptError:
         show_usage(script_name)
         sys.exit(1)
@@ -815,6 +1026,8 @@ def main():
                 acceptedNamespaces = set(arg.split(','))
         elif opt in ('-o', '--output'):
                 output_dir = arg
+        elif opt in ('-p', '--input'):
+                input_dir = arg
         elif opt in ('-a', '--anchors'):
                 anchors_path = arg
                 keepAnchors = True
@@ -830,41 +1043,46 @@ def main():
         show_usage(script_name)
         sys.exit(4)
 
-    if output_dir!="-":
-        if not os.path.isdir(output_dir):
+    if MapR==False:
+        if output_dir!="-":
+            if not os.path.isdir(output_dir):
+                try:
+                    os.makedirs(output_dir)
+                except:
+                    print >> sys.stderr, 'Could not create: ', output_dir
+                    return
+    
+            output_splitter = OutputSplitter(compress, file_size, output_dir)
+        else:
+            output_splitter = sys.stdout
+            if compress:
+                raise Exception('Incompatible options, you cannot compress stdout, use a pipe instead')
+    
+        if keepAnchors:
             try:
-                os.makedirs(output_dir)
+                anchors_file = open(anchors_path,'w',encoding='utf-8')            
             except:
-                print >> sys.stderr, 'Could not create: ', output_dir
+                print >> sys.stderr, 'Could not create: ', anchors_path
                 return
-
-        output_splitter = OutputSplitter(compress, file_size, output_dir)
-    else:
-        output_splitter = sys.stdout
-        if compress:
-            raise Exception('Incompatible options, you cannot compress stdout, use a pipe instead')
-
-    if keepAnchors:
-        try:
-            anchors_file = open(anchors_path,'w',encoding='utf-8')            
-        except:
-            print >> sys.stderr, 'Could not create: ', anchors_path
-            return
-        
+            
     if not keepLinks:
         ignoreTag('a')
 
     
-    input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    process_data(input_stream, output_splitter)
-    output_splitter.close()
-
-    # write anchors
-    if keepAnchors:
-        for link in anchors_dic.keys():
-            for anchor,count in anchors_dic[link].items():
-                anchors_file.write(link+'|'+anchor+'|'+str(count)+os.linesep)
-        anchors_file.close
+    if MapR==False:
+        input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+        process_data(input_stream, output_splitter)
+        output_splitter.close()
+    
+        # write anchors
+        if keepAnchors:
+            for link in anchors_dic.keys():
+                for anchor,count in anchors_dic[link].items():
+                    anchors_file.write(link+'|'+anchor+'|'+str(count)+os.linesep)
+            anchors_file.close
+    
+    if MapR==True:
+        process(sc, input_dir, output_dir)
         
 if __name__ == '__main__':
     main()
