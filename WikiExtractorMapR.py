@@ -4,15 +4,15 @@
 # =============================================================================
 #  Version: 2.5 (May 9, 2013)
 #  Author: Giuseppe Attardi (attardi@di.unipi.it), University of Pisa
-#	   Antonio Fuschetto (fuschett@di.unipi.it), University of Pisa
+#    Antonio Fuschetto (fuschett@di.unipi.it), University of Pisa
 #
 #  Contributors:
-#	Leonardo Souza (lsouza@amtera.com.br)
-#	Juan Manuel Caicedo (juan@cavorite.com)
-#	Humberto Pereira (begini@gmail.com)
-#	Siegfried-A. Gevatter (siegfried@gevatter.com)
-#	Pedro Assis (pedroh2306@gmail.com)
-#	Walid Shalaby (w.fouad.cs@gmail.com)
+# Leonardo Souza (lsouza@amtera.com.br)
+# Juan Manuel Caicedo (juan@cavorite.com)
+# Humberto Pereira (begini@gmail.com)
+# Siegfried-A. Gevatter (siegfried@gevatter.com)
+# Pedro Assis (pedroh2306@gmail.com)
+# Walid Shalaby (w.fouad.cs@gmail.com)
 #
 # =============================================================================
 #  Copyright (c) 2009. Giuseppe Attardi (attardi@di.unipi.it).
@@ -44,13 +44,17 @@ Each file contains several documents in Tanl document format:
         <text>
         ....
         </text
- 	</doc>
+  </doc>
 
 Usage:
   WikiExtractor.py [options]
   cat enwiki-20150304-pages-articles-multistream.xml | python WikiExtractor.py -g -o wiki20150304-docs -e -a wiki20150304_anchors.txt
-  spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml.bz2 -o wiki20150304 -e -a wiki20150304_anchors.txt
-  spark-submit WikiExtractorMapR.py -g -p enwiki-20160501-pages-articles-multistream-lines.xml.bz2 -o wiki20160501 -e -a wiki20160501_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml.bz2 -o wiki20150304 -e -s -a wiki20150304_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20160501-pages-articles-multistream-lines.xml.bz2 -o wiki20160501 -e -s -a wiki20160501_anchors.txt
+  spark-submit /users/wshalaby/wikipedia/WikiExtractorMapR.py -g -p wikisample-lines.xml -o wikisample-lines -e -s -a wikisample-lines_anchors.txt
+  hdfs dfs -text wikisample-lines/part* > solrwikisample-lines.txt
+  cat solrwikisample-lines.txt
+  hdfs dfs -rm -r wikisample-lines
   
 Options:
   -c, --compress        : compress output files using bzip
@@ -60,15 +64,15 @@ Options:
   -n NS, --ns NS        : accepted namespaces (separated by commas)
   -o, --output= dir     : place output files in specified directory (default
                           current)
-  -s, --sections	       : preserve sections
-  -a, --anchors	       : write anchors for same article in specified file
+  -s, --sections         : preserve sections
+  -a, --anchors        : write anchors for same article in specified file
                           e.g., [[Jaguar|Big Cat]] indicate that article with 
                           title "Jaguar" is also referred to as "Big Cat". 
                           The file will will have lines in below format
                           anchor_text|target_title
-  -e, --seealso	       : keep see also titles (usually they represent 
+  -e, --seealso        : keep see also titles (usually they represent 
                           semantically related topics)
-  -g, --category	       : keep category information
+  -g, --category         : keep category information
                           e.g., [Category:companies] --> 
                           <Category>companies</Cateogory>
   -h, --help            : display this help and exit
@@ -226,7 +230,7 @@ def WikiDocumentSolr(id, title, text, redirect=False):
     if not redirect:
         text = clean(text)
         compacted_text = compact(text)
-    
+        
         out = unicode("")
         
         # calculate text length    
@@ -254,15 +258,21 @@ def WikiDocumentSolr(id, title, text, redirect=False):
                                     .replace("<seealso_ngrams>","<field name=\"seealso_ngrams\"><![CDATA[") \
                                     .replace("</seealso_ngrams>","]]></field>")
             elif line.startswith("<wiki-anchor>"):
-                anchor = line.replace("<wiki-anchor>","") \
-                    .replace("</wiki-anchor>","") \
-                    .split("##$@@$##")
+                m = re.compile(r'<wiki-anchor>.*?</wiki-anchor>').match(line)
+                if m:
+                    header = m.group(0)
+                    trail = line[len(header):]
+                    anchor = header.replace("<wiki-anchor>","") \
+                        .replace("</wiki-anchor>","") \
+                        .split("##$@@$##")
                 
-                if len(anchor)==2:
-                    anchors.append((anchor[0], \
-                        "<field name=\"anchor\"><![CDATA["+ \
-                        anchor[1]+ \
-                        "]]></field>"))
+                    if len(anchor)==2:
+                        anchors.append((anchor[0], \
+                            "<field name=\"anchor\"><![CDATA["+ \
+                            anchor[1]+ \
+                            "]]></field>"))
+                        
+                    out += trail
                         
             elif line.startswith("<wiki-category>"):
                 if first==False:
@@ -367,7 +377,7 @@ def normalizeTitle(title):
           title = ns + ":" + rest.capitalize()
       else:
           # No namespace, just capitalize first letter.
-	  # If the part before the colon is not a known namespace, then we must
+    # If the part before the colon is not a known namespace, then we must
           # not remove the space after the colon (if any), e.g.,
           # "3001: The_Final_Odyssey" != "3001:The_Final_Odyssey".
           # However, to get the canonical page name we must contract multiple
@@ -552,11 +562,12 @@ def make_category_tag(match):
 
 # Function applied to wikiLinks
 def make_anchor_tag(match):
-    global keepLinks, anchors_dic, keepAnchors, keepCategoryInfo
+    global keepLinks, anchors_dic, keepAnchors
     link = match.group(1)
     colon = link.find(':')
     if colon > 0 and link[:colon] not in acceptedNamespaces:
         return ''
+    anchor_pat = ''
     trail = match.group(3)
     anchor = match.group(2)
     if not anchor:
@@ -573,12 +584,12 @@ def make_anchor_tag(match):
             else:
                 anchors_dic[link] = {anchor:1}
         else:
-            return '\n<wiki-anchor>%s##$@@$##%s</wiki-anchor>\n' % (link,anchor)
+            anchor_pat =  '\n<wiki-anchor>%s##$@@$##%s</wiki-anchor>' % (link,anchor)        
     anchor += trail
     if keepLinks:
         return '<a href="%s">%s</a>' % (link, anchor)
     else:
-        return anchor
+        return anchor+anchor_pat
 
 def annotateSeeAlso(text):
     new_text = ""
@@ -740,7 +751,8 @@ def compact(text):
             if keepSections:
                 page.append("<li>%s</li>" % line[1:])
             else:
-                continue
+                page.append("%s" % line[1:])
+                #continue
         # Drop residuals of lists
         elif line[0] in '{|' or line[-1] in '}':
             continue
@@ -1043,6 +1055,8 @@ def main():
         show_usage(script_name)
         sys.exit(4)
 
+    #process_page('<page>][$#@@#$][    <title>VESA</title>][$#@@#$][    <ns>0</ns>][$#@@#$][    <id>65350</id>][$#@@#$][    <revision>][$#@@#$][      <id>622146990</id>][$#@@#$][      <parentid>611644107</parentid>][$#@@#$][      <timestamp>2014-08-21T03:48:49Z</timestamp>][$#@@#$][      <contributor>][$#@@#$][        <username>Huw Powell</username>][$#@@#$][        <id>275605</id>][$#@@#$][      </contributor>][$#@@#$][      <comment>/* top */</comment>][$#@@#$][      <model>wikitext</model>][$#@@#$][      <format>text/x-wiki</format>][$#@@#$][      <text xml:space="preserve">{{multiple issues|][$#@@#$][{{expert-subject|date=August 2011}}][$#@@#$][{{refimprove|date=August 2011}}][$#@@#$][}}][$#@@#$][][$#@@#$][\'\'\'VESA\'\'\' ({{IPAc-en|\'|v|i?|s|?}}), or the \'\'\'Video Electronics Standards Association\'\'\', is an international [[non-profit corporation]] [[standards body]] for [[computer graphics]] formed in 1988 by [[NEC Home Electronics]], maker of the [[Multisync monitor|MultiSync monitor line]], and eight [[video display adapter]] manufacturers: [[ATI Technologies]], [[Genoa Systems]], [[Orchid Technology]], Renaissance GRX, [[STB Systems]], [[Tecmar]], [[Video 7]] and [[Western Digital]]/[[Paradise Systems]].&lt;ref&gt;NEC Forms Video Standards Group, \'\'InfoWorld\'\', Nov 14, 1988&lt;/ref&gt;][$#@@#$][][$#@@#$][VESA\'s initial goal was to produce a standard for 800x600 [[SVGA]] resolution video displays. Since then VESA has issued a number of standards, mostly relating to the function of video [[peripheral]]s in personal computers.][$#@@#$][][$#@@#$][In November 2010, VESA announced a cooperative agreement with the [[Wireless Gigabit Alliance]] (WiGig)  for sharing technology expertise and specifications to develop multi-gigabit wireless [[DisplayPort]] capabilities. DisplayPort is a VESA technology that provides digital display connectivity.][$#@@#$][][$#@@#$][== Standards ==][$#@@#$][* [[VESA Feature Connector]] (VFC), obsolete connector that was often present on older videocards, used as an 8-bit video bus to other devices][$#@@#$][* [[Feature connector|VESA Advanced Feature Connector]] (VAFC), newer version of the above VFC that widens the 8-bit bus to either a 16-bit or 32-bit bus][$#@@#$][* [[VESA Local Bus]] (VLB), once used as a fast video bus (akin to the more recent [[Accelerated Graphics Port|AGP]])][$#@@#$][* [[VESA BIOS Extensions]] (VBE), used for enabling standard support for advanced video modes (at high resolutions and color depths)][$#@@#$][* [[Display Data Channel]] (DDC), a data link protocol which allows a host device to control an attached display and communicate EDID, DPMS, MCCS and similar messages][$#@@#$][* [[Extended display identification data|E-EDID]], a data format for display identification data that defines supported resolutions and video timings][$#@@#$][* [[Monitor Control Command Set]] (MCCS), a message protocol for controlling display parameters such as brightness, contrast, display orientation from the host device][$#@@#$][* [[DisplayID]], display identification data format, which is a replacement for E-EDID.][$#@@#$][* [[VESA Display Power Management Signaling]] (DPMS), which allows monitors to be queried on the types of power saving modes they support][$#@@#$][* [[Digital Packet Video Link]] (DPVL), a display link standard that allows to update only portions of the screen][$#@@#$][* [[VESA Stereo]], a standard 3-pin connector for synchronization of [[stereoscopy|stereoscopic]] images with [[LC shutter glasses]]][$#@@#$][* [[Flat Display Mounting Interface]] (FDMI), which defines &quot;VESA mounts&quot;][$#@@#$][* [[Generalized Timing Formula]] (GTF), video timings standard][$#@@#$][* [[Coordinated Video Timings]] (CVT), a replacement for GTF][$#@@#$][* [[VESA Video Interface Port]] (VIP), a digital video interface standard][$#@@#$][* [[DisplayPort]] Standard, a digital video interface standard][$#@@#$][* [[VESA Enhanced Video Connector]], an obsolete standard for reducing the number of cables around computers.][$#@@#$][][$#@@#$][==Criticisms==][$#@@#$][VESA has been criticized for their policy of charging non-members for some of their published standards. Some people{{Who|date=June 2011}} believe the practice of charging for specifications has undermined the purpose of the VESA organization. According to Kendall Bennett, developer of the VBE/AF standard, the VESA Software Standards Committee was closed down due to a lack of interest resulting from charging high prices for specifications.&lt;ref&gt;[http://lkml.org/lkml/2000/1/26/28 Re: vm86 in kernel]&lt;/ref&gt;  At that time no VESA standards were available for free. Although VESA now hosts some free standards documents, the free collection does not include newly developed standards. Even for obsolete standards, the free collection is incomplete. As of 2010, current standards documents from VESA cost hundreds, or thousands, of dollars each.  Some older standards are not available for free, or for purchase. As of 2010, the free downloads require mandatory registration.&lt;ref&gt;[https://fs16.formsite.com/VESA/form714826558/secure_index.html VESA PUBLIC STANDARDS DOWNLOAD REGISTRATION]&lt;/ref&gt;  While not all standards bodies provide specifications freely available for download, many do, including: [[ITU]], [[JEDEC]], [[Digital Display Working Group|DDWG]], and [[HDMI]] (through HDMI 1.3a).][$#@@#$][][$#@@#$][At the time [[DisplayPort]] was announced, VESA was criticized for developing the specification in secret and having a track record of developing unsuccessful digital interface standards, including [[VESA Plug and Display|Plug &amp; Display]] and [[Digital Flat Panel]].&lt;ref&gt;[http://digitimes.com/displays/a20051007PR200.html Commentary: Will VESA survive DisplayPort?]&lt;/ref&gt;][$#@@#$][][$#@@#$][==References==][$#@@#$][{{reflist}}][$#@@#$][][$#@@#$][==External links==][$#@@#$][* [http://www.vesa.org/ Group home page]][$#@@#$][][$#@@#$][{{DEFAULTSORT:Vesa}}][$#@@#$][[[Category:VESA| ]]][$#@@#$][[[Category:Computer display standards]]</text>][$#@@#$][      <sha1>l8dcsrx5tth2olb77vlpeoviv1isaas</sha1>][$#@@#$][    </revision>][$#@@#$][  </page>')
+    #return
     if MapR==False:
         if output_dir!="-":
             if not os.path.isdir(output_dir):
@@ -1086,3 +1100,4 @@ def main():
         
 if __name__ == '__main__':
     main()
+    
