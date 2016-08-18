@@ -49,9 +49,10 @@ Each file contains several documents in Tanl document format:
 Usage:
   WikiExtractor.py [options]
   cat enwiki-20150304-pages-articles-multistream.xml | python WikiExtractor.py -g -o wiki20150304-docs -e -a wiki20150304_anchors.txt
-  spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml.bz2 -o wiki20150304 -e -s -a wiki20150304_anchors.txt
-  spark-submit WikiExtractorMapR.py -g -p enwiki-20160501-pages-articles-multistream-lines.xml.bz2 -o wiki20160501 -e -s -a wiki20160501_anchors.txt
-  spark-submit /users/wshalaby/wikipedia/WikiExtractorMapR.py -g -p wikisample-lines.xml -o wikisample-lines -e -s -a wikisample-lines_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml.bz2 -o wiki20150304 -e -a wiki20150304_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20150304-pages-articles-multistream-lines.xml -o wiki20150304 -e -a wiki20150304_anchors.txt
+  spark-submit WikiExtractorMapR.py -g -p enwiki-20160501-pages-articles-multistream-lines.xml.bz2 -o wiki20160501 -e -a wiki20150304_anchors.txt
+  spark-submit /users/wshalaby/wikipedia/WikiExtractorMapR.py -g -p wikisample-lines.xml -o wikisample-lines -e -a wiki20150304_anchors.txt
   hdfs dfs -text wikisample-lines/part* > solrwikisample-lines.txt
   cat solrwikisample-lines.txt
   hdfs dfs -rm -r wikisample-lines
@@ -897,7 +898,7 @@ def show_usage(script_name):
 minFileSize = 200 * 1024
 
 def merge(key, text):
-    text = key+"\t"+"<add><doc>"+''.join(text)+"</doc></add>"
+    text = key+"\t"+"<doc>"+''.join(text)+"</doc>"
     if text.find("<field name=\"id\">")!=-1:
         return text
     else:
@@ -1041,7 +1042,8 @@ def main():
         elif opt in ('-p', '--input'):
                 input_dir = arg
         elif opt in ('-a', '--anchors'):
-                anchors_path = arg
+                if MapR==False:
+                    anchors_path = arg
                 keepAnchors = True
         elif opt in ('-e', '--seealso'):
                 keepSeeAlso = True
@@ -1072,7 +1074,7 @@ def main():
             if compress:
                 raise Exception('Incompatible options, you cannot compress stdout, use a pipe instead')
     
-        if keepAnchors:
+        if keepAnchors and MapR==False:
             try:
                 anchors_file = open(anchors_path,'w',encoding='utf-8')            
             except:
